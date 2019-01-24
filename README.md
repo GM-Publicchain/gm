@@ -10,7 +10,6 @@
 ```
 git clone https://github.com/GM-Publicchain/gm $GOPATH/src/github.com/GM-Publicchain/gm
 cd $GOPATH/src/github.com/GM-Publicchain/gm
-
 go build -i -o gm
 go build -i -o gm-cli github.com/GM-Publicchain/gm/cli
 ```
