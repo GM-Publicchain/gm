@@ -1,0 +1,29 @@
+version: '3'
+
+services:
+  chain33:
+    build:
+      context: .
+    ports:
+     - "8802:8802"
+     - "8801:8801"
+
+  chain32:
+    build:
+      context: .
+
+  chain31:
+    build:
+      context: .
+
+  chain30:
+    build:
+      context: .
+
+  chain29:
+    build:
+      context: .
+
+  chain28:
+    build:
+      context: .

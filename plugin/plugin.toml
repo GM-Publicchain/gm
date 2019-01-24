@@ -1,0 +1,27 @@
+# type字段仅支持 consensus  dapp store
+[consensus-ticket]
+gitrepo = "github.com/33cn/plugin/plugin/consensus/para"
+
+[dapp-retrieve]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/retrieve"
+
+[dapp-hashlock]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/hashlock"
+
+[dapp-token]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/token"
+
+[dapp-trade]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/trade"
+
+[dapp-paracross]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/paracross"
+
+[dapp-evm]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/evm"
+
+[dapp-multisig]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/multisig"
+
+[dapp-unfreeze]
+gitrepo = "github.com/33cn/plugin/plugin/dapp/unfreeze"
