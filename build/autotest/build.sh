@@ -11,12 +11,9 @@ if [ "$(uname)" == "Darwin" ]; then
 fi
 
 AutoTestMain="../../vendor/github.com/33cn/chain33/cmd/autotest/main.go"
-ImportPlugin='"github.com/33cn/plugin/plugin"'
+ImportPlugin='"github.com/GM-Publicchain/gm/plugin"'
 
 function build_auto_test() {
-    cp ../../bityuan ../chain33
-    cp ../../bityuan-cli ../chain33-cli
-    cp ../../bityuan.toml ../chain33.toml
 
     cp "${AutoTestMain}" ./
     sed -i $sedfix "/^package/a import _ ${ImportPlugin}" main.go

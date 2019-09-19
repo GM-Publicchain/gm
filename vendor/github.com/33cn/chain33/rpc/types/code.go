@@ -11,6 +11,8 @@ import (
 
 	"github.com/33cn/chain33/common"
 	"github.com/33cn/chain33/types"
+
+	_ "github.com/33cn/chain33/system/dapp/coins/types" //load system plugin
 )
 
 // DecodeLog decode log
@@ -68,6 +70,11 @@ func ConvertWalletTxDetailToJSON(in *types.WalletTxDetails, out *WalletTxDetails
 		if err != nil {
 			continue
 		}
+		if tx.Tx.IsWithdraw() {
+			//swap from and to
+			tx.Fromaddr, tx.Tx.To = tx.Tx.To, tx.Fromaddr
+			tran.To = tx.Tx.GetRealToAddr()
+		}
 		out.TxDetails = append(out.TxDetails, &WalletTxDetail{
 			Tx:         tran,
 			Receipt:    rd,
@@ -103,7 +110,7 @@ func DecodeTx(tx *types.Transaction) (*Transaction, error) {
 	}
 	var pljson json.RawMessage
 	if pl != nil {
-		pljson, _ = types.PBToJSON(pl)
+		pljson, _ = types.PBToJSONUTF8(pl)
 	}
 	result := &Transaction{
 		Execer:     string(tx.Execer),

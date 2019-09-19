@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-set -x
 set -e
 set -o pipefail
 #set -o verbose
@@ -34,12 +33,15 @@ function down_dapp() {
 }
 
 function run_dapp() {
-    app=$1
-    test=$2
+    local app=$1
+    local test=$2
 
     echo "============ run dapp=$app start ================="
     rm -rf "${app}"-ci && mkdir -p "${app}"-ci && cp ./"${app}"/* ./"${app}"-ci && echo $?
     cp -n ./* ./"${app}"-ci/ && echo $?
+    if [ "$app" == "paracross" ]; then
+        cp -r dapptest/ "${app}"-ci/ && echo $?
+    fi
     cd "${app}"-ci/ && pwd
 
     if [ "$test" == "$FORKTESTFILE" ]; then
@@ -127,6 +129,8 @@ function main() {
         else
             ./system-fork-test.sh "${PROJ}"
         fi
+    elif [ "${OP}" == "modify" ]; then
+        sed -i $sedfix '/^useGithub=.*/a version=1' chain33.toml
     fi
 
 }

@@ -5,18 +5,24 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+
 	"github.com/33cn/chain33/client/mocks"
 	"github.com/33cn/chain33/queue"
 	qmocks "github.com/33cn/chain33/queue/mocks"
 	"github.com/33cn/chain33/rpc"
+	"github.com/33cn/chain33/rpc/grpcclient"
 	"github.com/33cn/chain33/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc/status"
 )
 
 func TestAPI(t *testing.T) {
 	api := new(mocks.QueueProtocolAPI)
-	eapi := New(api, "")
+	gapi, err := grpcclient.NewMainChainClient("")
+	assert.Nil(t, err)
+	eapi := New(api, gapi)
 	param := &types.ReqHashes{
 		Hashes: [][]byte{[]byte("hello")},
 	}
@@ -44,7 +50,6 @@ func TestAPI(t *testing.T) {
 	rpcCfg := new(types.RPC)
 	rpcCfg.GrpcBindAddr = "127.0.0.1:8003"
 	rpcCfg.JrpcBindAddr = "127.0.0.1:8004"
-	rpcCfg.MainnetJrpcAddr = rpcCfg.JrpcBindAddr
 	rpcCfg.Whitelist = []string{"127.0.0.1", "0.0.0.0"}
 	rpcCfg.JrpcFuncWhitelist = []string{"*"}
 	rpcCfg.GrpcFuncWhitelist = []string{"*"}
@@ -54,13 +59,17 @@ func TestAPI(t *testing.T) {
 	go server.Listen()
 	time.Sleep(time.Second)
 
-	eapi = New(api, "")
+	eapi = New(api, gapi)
 	_, err = eapi.GetBlockByHashes(param)
 	assert.Equal(t, true, IsGrpcError(err))
+	assert.Equal(t, true, IsGrpcError(status.New(codes.Aborted, "operation is abort").Err()))
 	assert.Equal(t, false, IsGrpcError(nil))
 	assert.Equal(t, false, IsGrpcError(errors.New("xxxx")))
 	assert.Equal(t, true, eapi.IsErr())
-	eapi = New(api, "127.0.0.1:8003")
+
+	gapi2, err := grpcclient.NewMainChainClient("127.0.0.1:8003")
+	assert.Nil(t, err)
+	eapi = New(api, gapi2)
 	detail, err = eapi.GetBlockByHashes(param)
 	assert.Equal(t, err, nil)
 	assert.Equal(t, detail, &types.BlockDetails{})

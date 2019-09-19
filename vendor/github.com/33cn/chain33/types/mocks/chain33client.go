@@ -313,7 +313,7 @@ func (_m *Chain33Client) GetAddrOverview(ctx context.Context, in *types.ReqAddr,
 }
 
 // GetAllExecBalance provides a mock function with given fields: ctx, in, opts
-func (_m *Chain33Client) GetAllExecBalance(ctx context.Context, in *types.ReqAddr, opts ...grpc.CallOption) (*types.AllExecBalance, error) {
+func (_m *Chain33Client) GetAllExecBalance(ctx context.Context, in *types.ReqAllExecBalance, opts ...grpc.CallOption) (*types.AllExecBalance, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
@@ -324,7 +324,7 @@ func (_m *Chain33Client) GetAllExecBalance(ctx context.Context, in *types.ReqAdd
 	ret := _m.Called(_ca...)
 
 	var r0 *types.AllExecBalance
-	if rf, ok := ret.Get(0).(func(context.Context, *types.ReqAddr, ...grpc.CallOption) *types.AllExecBalance); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.ReqAllExecBalance, ...grpc.CallOption) *types.AllExecBalance); ok {
 		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
@@ -333,7 +333,7 @@ func (_m *Chain33Client) GetAllExecBalance(ctx context.Context, in *types.ReqAdd
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *types.ReqAddr, ...grpc.CallOption) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *types.ReqAllExecBalance, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
@@ -754,6 +754,36 @@ func (_m *Chain33Client) GetPeerInfo(ctx context.Context, in *types.ReqNil, opts
 
 	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *types.ReqNil, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetProperFee provides a mock function with given fields: ctx, in, opts
+func (_m *Chain33Client) GetProperFee(ctx context.Context, in *types.ReqProperFee, opts ...grpc.CallOption) (*types.ReplyProperFee, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	var r0 *types.ReplyProperFee
+	if rf, ok := ret.Get(0).(func(context.Context, *types.ReqProperFee, ...grpc.CallOption) *types.ReplyProperFee); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*types.ReplyProperFee)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context, *types.ReqProperFee, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
@@ -1264,36 +1294,6 @@ func (_m *Chain33Client) SaveSeed(ctx context.Context, in *types.SaveSeedByPw, o
 
 	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *types.SaveSeedByPw, ...grpc.CallOption) error); ok {
-		r1 = rf(ctx, in, opts...)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// SendRawTransaction provides a mock function with given fields: ctx, in, opts
-func (_m *Chain33Client) SendRawTransaction(ctx context.Context, in *types.SignedTx, opts ...grpc.CallOption) (*types.Reply, error) {
-	_va := make([]interface{}, len(opts))
-	for _i := range opts {
-		_va[_i] = opts[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, ctx, in)
-	_ca = append(_ca, _va...)
-	ret := _m.Called(_ca...)
-
-	var r0 *types.Reply
-	if rf, ok := ret.Get(0).(func(context.Context, *types.SignedTx, ...grpc.CallOption) *types.Reply); ok {
-		r0 = rf(ctx, in, opts...)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.Reply)
-		}
-	}
-
-	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *types.SignedTx, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)

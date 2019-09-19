@@ -12,11 +12,14 @@ import (
 	"github.com/33cn/chain33/client"
 	"github.com/33cn/chain33/pluginmgr"
 	"github.com/33cn/chain33/queue"
+	"github.com/33cn/chain33/rpc/grpcclient"
+	_ "github.com/33cn/chain33/rpc/grpcclient" // register grpc multiple resolver
 	"github.com/33cn/chain33/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip" // register gzip
+	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -32,6 +35,8 @@ var (
 // Chain33  a channel client
 type Chain33 struct {
 	cli channelClient
+	//for communicate with main chain in parallel chain
+	mainGrpcCli types.Chain33Client
 }
 
 // Grpc a channelClient
@@ -61,7 +66,10 @@ type JSONRPCServer struct {
 // Close json rpcserver close
 func (s *JSONRPCServer) Close() {
 	if s.l != nil {
-		s.l.Close()
+		err := s.l.Close()
+		if err != nil {
+			log.Error("JSONRPCServer close", "err", err)
+		}
 	}
 	if s.jrpc != nil {
 		s.jrpc.cli.Close()
@@ -128,7 +136,10 @@ func (j *Grpcserver) Close() {
 		return
 	}
 	if j.l != nil {
-		j.l.Close()
+		err := j.l.Close()
+		if err != nil {
+			log.Error("Grpcserver close", "err", err)
+		}
 	}
 	if j.grpc != nil {
 		j.grpc.cli.Close()
@@ -158,6 +169,13 @@ func NewGRpcServer(c queue.Client, api client.QueueProtocolAPI) *Grpcserver {
 		credsOps := grpc.Creds(creds)
 		opts = append(opts, credsOps)
 	}
+
+	kp := keepalive.EnforcementPolicy{
+		MinTime:             10 * time.Second,
+		PermitWithoutStream: true,
+	}
+	opts = append(opts, grpc.KeepaliveEnforcementPolicy(kp))
+
 	server := grpc.NewServer(opts...)
 	s.s = server
 	types.RegisterChain33Server(server, s.grpc)
@@ -168,9 +186,19 @@ func NewGRpcServer(c queue.Client, api client.QueueProtocolAPI) *Grpcserver {
 func NewJSONRPCServer(c queue.Client, api client.QueueProtocolAPI) *JSONRPCServer {
 	j := &JSONRPCServer{jrpc: &Chain33{}}
 	j.jrpc.cli.Init(c, api)
+	if types.IsPara() {
+		grpcCli, err := grpcclient.NewMainChainClient("")
+		if err != nil {
+			panic(err)
+		}
+		j.jrpc.mainGrpcCli = grpcCli
+	}
 	server := rpc.NewServer()
 	j.s = server
-	server.RegisterName("Chain33", j.jrpc)
+	err := server.RegisterName("Chain33", j.jrpc)
+	if err != nil {
+		return nil
+	}
 	return j
 }
 
@@ -197,6 +225,9 @@ func InitCfg(cfg *types.RPC) {
 // New produce a rpc by cfg
 func New(cfg *types.RPC) *RPC {
 	InitCfg(cfg)
+	if cfg.EnableTrace {
+		grpc.EnableTracing = true
+	}
 	return &RPC{cfg: cfg}
 }
 

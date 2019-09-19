@@ -33,6 +33,11 @@ const (
 	NoneX    = "none"
 )
 
+//DefaultCoinsSymbol 默认的主币名称
+const (
+	DefaultCoinsSymbol = "bty"
+)
+
 //UserKeyX 用户自定义执行器前缀byte类型
 var (
 	UserKey    = []byte(UserKeyX)
@@ -52,6 +57,11 @@ const (
 	PrivacyMaturityDegree         = 12
 	TxGroupMaxCount               = 20
 	MinerAction                   = "miner"
+	Int1E4                int64   = 10000
+	Float1E4              float64 = 10000.0
+	AirDropMinIndex       uint32  = 100000000 //通过钱包的seed生成一个空投地址，最小index索引
+	AirDropMaxIndex       uint32  = 101000000 //通过钱包的seed生成一个空投地址，最大index索引
+
 )
 
 //全局账户私钥/公钥
@@ -101,6 +111,8 @@ const (
 	TyLogGenesisTransfer = 11
 	TyLogGenesisDeposit  = 12
 	TyLogRollback        = 13
+	TyLogMint            = 14
+	TyLogBurn            = 15
 )
 
 //SystemLog 系统log日志
@@ -118,6 +130,8 @@ var SystemLog = map[int64]*LogInfo{
 	TyLogGenesisTransfer: {reflect.TypeOf(ReceiptAccountTransfer{}), "LogGenesisTransfer"},
 	TyLogGenesisDeposit:  {reflect.TypeOf(ReceiptAccountTransfer{}), "LogGenesisDeposit"},
 	TyLogRollback:        {reflect.TypeOf(LocalDBSet{}), "LogRollback"},
+	TyLogMint:            {reflect.TypeOf(ReceiptAccountMint{}), "LogMint"},
+	TyLogBurn:            {reflect.TypeOf(ReceiptAccountBurn{}), "LogBurn"},
 }
 
 //exec type

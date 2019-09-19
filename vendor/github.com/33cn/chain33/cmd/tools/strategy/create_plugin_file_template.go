@@ -220,10 +220,11 @@ ForkResetTx0= 200000
 ForkWithdraw= 200000
 ForkExecRollback= 450000
 ForkCheckBlockTime=1200000
-ForkMultiSignAddress=1500000
+ForkMultiSignAddress=1298600
 ForkTxHeight= -1
 ForkTxGroupPara= -1
 ForkChainParamV2= -1
+ForkBase58AddressCheck=1800000
 [fork.sub.coins]
 Enable=0
 [fork.sub.ticket]
@@ -274,7 +275,7 @@ update:
 	cp -Rf vendor/${CHAIN33}/vendor/* vendor/
 	rm -rf vendor/${CHAIN33}/vendor
 	govendor init
-	go build -i -o tool github.com/33cn/plugin/vendor/github.com/33cn/chain33/cmd/tools
+	go build -i -o tool github.com/GM-Publicchain/gm/vendor/github.com/33cn/chain33/cmd/tools
 	./tool import --path "plugin" --packname "${PROJECTPATH}/plugin" --conf "plugin/plugin.toml"
 
 updatevendor:
@@ -311,28 +312,28 @@ go:
 	CpftPluginToml = `
 # type字段仅支持 consensus  dapp store mempool
 [dapp-ticket]
-gitrepo = "github.com/33cn/plugin/plugin/dapp/ticket"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/dapp/ticket"
 
 [consensus-ticket]
-gitrepo = "github.com/33cn/plugin/plugin/consensus/ticket"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/consensus/ticket"
 
 [dapp-retrieve]
-gitrepo = "github.com/33cn/plugin/plugin/dapp/retrieve"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/dapp/retrieve"
 
 [dapp-hashlock]
-gitrepo = "github.com/33cn/plugin/plugin/dapp/hashlock"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/dapp/hashlock"
 
 [dapp-token]
-gitrepo = "github.com/33cn/plugin/plugin/dapp/token"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/dapp/token"
 
 [dapp-trade]
-gitrepo = "github.com/33cn/plugin/plugin/dapp/trade"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/dapp/trade"
 
 [mempool-price]
-gitrepo = "github.com/33cn/plugin/plugin/mempool/price"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/mempool/price"
 
 [mempool-score]
-gitrepo = "github.com/33cn/plugin/plugin/mempool/score"
+gitrepo = "github.com/GM-Publicchain/gm/plugin/mempool/score"
 `
 	// 项目 cli/main.go 文件模板
 	CpftCliMain = `package main

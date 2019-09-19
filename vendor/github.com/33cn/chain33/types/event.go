@@ -82,10 +82,11 @@ const (
 	EventReplyGetSeed = 74
 	EventDelBlock     = 75
 	//local store
-	EventLocalGet                = 76
-	EventLocalReplyValue         = 77
-	EventLocalList               = 78
-	EventLocalSet                = 79
+	EventLocalGet        = 76
+	EventLocalReplyValue = 77
+	EventLocalList       = 78
+	EventLocalSet        = 79
+
 	EventGetWalletStatus         = 80
 	EventCheckTx                 = 81
 	EventReceiptCheckTx          = 82
@@ -133,16 +134,34 @@ const (
 	EventAddParaChainBlockDetail = 126
 	EventGetSeqByHash            = 127
 	EventLocalPrefixCount        = 128
-	EventWalletCreateTx          = 129
-	EventStoreList               = 130
-	EventStoreListReply          = 131
-	EventListBlockSeqCB          = 132
-	EventGetSeqCBLastNum         = 133
-	EventGetBlockBySeq           = 134
+	//EventWalletCreateTx          = 129
+	EventStoreList       = 130
+	EventStoreListReply  = 131
+	EventListBlockSeqCB  = 132
+	EventGetSeqCBLastNum = 133
+	EventGetBlockBySeq   = 134
 
+	EventLocalBegin    = 135
+	EventLocalCommit   = 136
+	EventLocalRollback = 137
+	EventLocalNew      = 138
+	EventLocalClose    = 139
+
+	//mempool
+	EventGetProperFee   = 140
+	EventReplyProperFee = 141
+
+	EventReExecBlock  = 142
+	EventTxListByHash = 143
 	//exec
 	EventBlockChainQuery = 212
 	EventConsensusQuery  = 213
+
+	// BlockChain 接收的事件
+	EventGetLastBlockMainSequence   = 300
+	EventReplyLastBlockMainSequence = 301
+	EventGetMainSeqByHash           = 302
+	EventReplyMainSeqByHash         = 303
 )
 
 var eventName = map[int]string{
@@ -271,12 +290,27 @@ var eventName = map[int]string{
 	127: "EventGetSeqByHash",
 	128: "EventLocalPrefixCount",
 	//todo: 这个可能后面会删除
-	EventWalletCreateTx: "EventWalletCreateTx",
+	//EventWalletCreateTx: "EventWalletCreateTx",
 	EventStoreList:      "EventStoreList",
 	EventStoreListReply: "EventStoreListReply",
 	// Token
 	EventBlockChainQuery: "EventBlockChainQuery",
 	EventConsensusQuery:  "EventConsensusQuery",
+	EventGetBlockBySeq:   "EventGetBlockBySeq",
 
-	EventGetBlockBySeq: "EventGetBlockBySeq",
+	EventLocalBegin:    "EventLocalBegin",
+	EventLocalCommit:   "EventLocalCommit",
+	EventLocalRollback: "EventLocalRollback",
+	EventLocalNew:      "EventLocalNew",
+	EventLocalClose:    "EventLocalClose",
+
+	//mempool
+	EventGetProperFee:   "EventGetProperFee",
+	EventReplyProperFee: "EventReplyProperFee",
+	EventTxListByHash:   "EventTxListByHash",
+	// block chain
+	EventGetLastBlockMainSequence:   "EventGetLastBlockMainSequence",
+	EventReplyLastBlockMainSequence: "EventReplyLastBlockMainSequence",
+	EventGetMainSeqByHash:           "EventGetMainSeqByHash",
+	EventReplyMainSeqByHash:         "EventReplyMainSeqByHash",
 }

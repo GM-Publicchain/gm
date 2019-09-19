@@ -13,8 +13,8 @@ import (
 type QueueProtocolAPI interface {
 	Version() (*types.VersionInfo, error)
 	Close()
-	NewMessage(topic string, msgid int64, data interface{}) queue.Message
-	Notify(topic string, ty int64, data interface{}) (queue.Message, error)
+	NewMessage(topic string, msgid int64, data interface{}) *queue.Message
+	Notify(topic string, ty int64, data interface{}) (*queue.Message, error)
 	// +++++++++++++++ mempool interfaces begin
 	// 同步发送交易信息到指定模块，获取应答消息 types.EventTx
 	SendTx(param *types.Transaction) (*types.Reply, error)
@@ -24,6 +24,8 @@ type QueueProtocolAPI interface {
 	GetMempool() (*types.ReplyTxList, error)
 	// types.EventGetLastMempool
 	GetLastMempool() (*types.ReplyTxList, error)
+	// types.EventGetProperFee
+	GetProperFee(req *types.ReqProperFee) (*types.ReplyProperFee, error)
 	// +++++++++++++++ execs interfaces begin
 	// types.EventBlockChainQuery
 	Query(driver, funcname string, param types.Message) (types.Message, error)
@@ -43,6 +45,18 @@ type QueueProtocolAPI interface {
 	// +++++++++++++++ wallet interfaces begin
 	// types.EventLocalGet
 	LocalGet(param *types.LocalDBGet) (*types.LocalReplyValue, error)
+	// types.EventLocalNew
+	LocalNew(param *types.ReqNil) (*types.Int64, error)
+	// types.EventLocalClose
+	LocalClose(param *types.Int64) error
+	// types.EventLocalBeign
+	LocalBegin(param *types.Int64) error
+	// types.EventLocalCommit
+	LocalCommit(param *types.Int64) error
+	// types.EventLocalRollback
+	LocalRollback(param *types.Int64) error
+	// types.EventLocalSet
+	LocalSet(param *types.LocalDBSet) error
 	// types.EventLocalList
 	LocalList(param *types.LocalDBList) (*types.LocalReplyValue, error)
 	// types.EventWalletGetAccountList
@@ -80,8 +94,6 @@ type QueueProtocolAPI interface {
 	// types.EventSignRawTx
 	SignRawTx(param *types.ReqSignRawTx) (*types.ReplySignRawTx, error)
 	GetFatalFailure() (*types.Int32, error)
-	// types.EventCreateTransaction 由服务器协助创建一个交易
-	WalletCreateTx(param *types.ReqCreateTransaction) (*types.Transaction, error)
 	// types.EventGetBlocks
 	GetBlocks(param *types.ReqBlocks) (*types.BlockDetails, error)
 	// types.EventQueryTx
@@ -107,13 +119,20 @@ type QueueProtocolAPI interface {
 
 	//types.EventGetLastBlockSequence:
 	GetLastBlockSequence() (*types.Int64, error)
-
+	//types.EventGetBlockSequences:
+	GetBlockSequences(param *types.ReqBlocks) (*types.BlockSequences, error)
 	//types.EventGetBlockByHashes:
 	GetBlockByHashes(param *types.ReqHashes) (*types.BlockDetails, error)
 	//types.EventGetBlockBySeq:
 	GetBlockBySeq(param *types.Int64) (*types.BlockSeq, error)
 	//types.EventGetSequenceByHash:
 	GetSequenceByHash(param *types.ReqHash) (*types.Int64, error)
+
+	// 在平行链上获得主链Sequence相关的接口
+	//types.EventGetLastBlockSequence:
+	GetLastBlockMainSequence() (*types.Int64, error)
+	//types.EventGetSequenceByHash:
+	GetMainSequenceByHash(param *types.ReqHash) (*types.Int64, error)
 
 	// --------------- blockchain interfaces end
 

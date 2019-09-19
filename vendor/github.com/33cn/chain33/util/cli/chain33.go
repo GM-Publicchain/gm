@@ -40,8 +40,6 @@ import (
 	"github.com/33cn/chain33/store"
 	"github.com/33cn/chain33/types"
 	"github.com/33cn/chain33/wallet"
-	"golang.org/x/net/trace"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -51,6 +49,7 @@ var (
 	datadir    = flag.String("datadir", "", "data dir of chain33, include logs and datas")
 	versionCmd = flag.Bool("v", false, "version")
 	fixtime    = flag.Bool("fixtime", false, "fix time")
+	waitPid    = flag.Bool("waitpid", false, "p2p stuck until seed save info wallet & wallet unlock")
 )
 
 //RunChain33 : run Chain33
@@ -67,12 +66,21 @@ func RunChain33(name string) {
 			*configPath = name + ".toml"
 		}
 	}
-	d, _ := os.Getwd()
+	d, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 	log.Info("current dir:", "dir", d)
-	os.Chdir(pwd())
-	d, _ = os.Getwd()
+	err = os.Chdir(pwd())
+	if err != nil {
+		panic(err)
+	}
+	d, err = os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 	log.Info("current dir:", "dir", d)
-	err := limits.SetLimits()
+	err = limits.SetLimits()
 	if err != nil {
 		panic(err)
 	}
@@ -83,6 +91,9 @@ func RunChain33(name string) {
 	}
 	if *fixtime {
 		cfg.FixTime = *fixtime
+	}
+	if *waitPid {
+		cfg.P2P.WaitPid = *waitPid
 	}
 	//set test net flag
 	types.Init(cfg.Title, cfg)
@@ -111,45 +122,45 @@ func RunChain33(name string) {
 	//set pprof
 	go func() {
 		if cfg.Pprof != nil {
-			http.ListenAndServe(cfg.Pprof.ListenAddr, nil)
+			err := http.ListenAndServe(cfg.Pprof.ListenAddr, nil)
+			if err != nil {
+				log.Info("ListenAndServe", "listen addr", cfg.Pprof.ListenAddr, "err", err)
+			}
 		} else {
-			http.ListenAndServe("localhost:6060", nil)
+			err := http.ListenAndServe("localhost:6060", nil)
+			if err != nil {
+				log.Info("ListenAndServe", "listen addr localhost:6060 err", err)
+			}
 		}
 	}()
-	//set trace
-	grpc.EnableTracing = true
-	go startTrace()
 	//set maxprocs
 	runtime.GOMAXPROCS(cpuNum)
 	//开始区块链模块加载
 	//channel, rabitmq 等
 	version.SetLocalDBVersion(cfg.Store.LocalDBVersion)
+	version.SetStoreDBVersion(cfg.Store.StoreDBVersion)
 	version.SetAppVersion(cfg.Version)
-	log.Info(cfg.Title + "-app:" + version.GetAppVersion() + " chain33:" + version.GetVersion() + " localdb:" + version.GetLocalDBVersion())
+	log.Info(cfg.Title + "-app:" + version.GetAppVersion() + " chain33:" + version.GetVersion() + " localdb:" + version.GetLocalDBVersion() + " statedb:" + version.GetStoreDBVersion())
 	log.Info("loading queue")
 	q := queue.New("channel")
 
 	log.Info("loading mempool module")
-	var mem queue.Module
-	if !types.IsPara() {
-		mem = mempool.New(cfg.Mempool, sub.Mempool)
-	} else {
-		mem = &util.MockModule{Key: "mempool"}
-	}
+	mem := mempool.New(cfg.Mempool, sub.Mempool)
 	mem.SetQueueClient(q.Client())
 
 	log.Info("loading execs module")
 	exec := executor.New(cfg.Exec, sub.Exec)
 	exec.SetQueueClient(q.Client())
 
+	log.Info("loading blockchain module")
+	chain := blockchain.New(cfg.BlockChain)
+	chain.SetQueueClient(q.Client())
+
 	log.Info("loading store module")
 	s := store.New(cfg.Store, sub.Store)
 	s.SetQueueClient(q.Client())
 
-	log.Info("loading blockchain module")
-	chain := blockchain.New(cfg.BlockChain)
-	chain.SetQueueClient(q.Client())
-	chain.UpgradeChain()
+	chain.Upgrade()
 
 	log.Info("loading consensus module")
 	cs := consensus.New(cfg.Consensus, sub.Consensus)
@@ -199,16 +210,6 @@ func RunChain33(name string) {
 
 	}()
 	q.Start()
-}
-
-// 开启trace
-
-func startTrace() {
-	trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
-		return true, true
-	}
-	go http.ListenAndServe("localhost:50051", nil)
-	log.Info("Trace listen on localhost:50051")
 }
 
 func createFile(filename string) (*os.File, error) {

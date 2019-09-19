@@ -142,8 +142,9 @@ func (p *Peer) heartBeat() {
 			go p.readStream()
 			break
 		} else {
-			time.Sleep(time.Second * 5)
-			continue
+			//版本不对，直接关掉
+			p.Close()
+			return
 		}
 	}
 
@@ -180,7 +181,7 @@ func (p *Peer) sendStream() {
 	//Stream Send data
 	for {
 		if !p.GetRunning() {
-			log.Info("sendStream peer is not running")
+			log.Info("sendStream peer connect closed", "peerid", p.GetPeerName())
 			return
 		}
 		ctx, cancel := context.WithCancel(context.Background())
@@ -195,7 +196,10 @@ func (p *Peer) sendStream() {
 		//send ping package
 		ping, err := P2pComm.NewPingData(p.node.nodeInfo)
 		if err != nil {
-			resp.CloseSend()
+			errs := resp.CloseSend()
+			if errs != nil {
+				log.Error("CloseSend", "err", errs)
+			}
 			cancel()
 			time.Sleep(time.Second)
 			continue
@@ -203,7 +207,11 @@ func (p *Peer) sendStream() {
 		p2pdata := new(pb.BroadCastData)
 		p2pdata.Value = &pb.BroadCastData_Ping{Ping: ping}
 		if err := resp.Send(p2pdata); err != nil {
-			resp.CloseSend()
+			P2pComm.CollectPeerStat(err, p)
+			errs := resp.CloseSend()
+			if errs != nil {
+				log.Error("CloseSend", "err", errs)
+			}
 			cancel()
 			log.Error("sendStream", "sendping", err)
 			time.Sleep(time.Second)
@@ -216,10 +224,13 @@ func (p *Peer) sendStream() {
 			Softversion: v.GetVersion(), Peername: peername}}
 
 		if err := resp.Send(p2pdata); err != nil {
-			resp.CloseSend()
+			P2pComm.CollectPeerStat(err, p)
+			errs := resp.CloseSend()
+			if errs != nil {
+				log.Error("CloseSend", "err", errs)
+			}
 			cancel()
-			log.Error("sendStream", "sendping", err)
-			time.Sleep(time.Second)
+			log.Error("sendStream", "sendversion", err)
 			continue
 		}
 		timeout := time.NewTimer(time.Second * 2)
@@ -228,12 +239,18 @@ func (p *Peer) sendStream() {
 	SEND_LOOP:
 		for {
 
+			if !p.GetRunning() {
+				return
+			}
 			select {
 			case task := <-p.taskChan:
 				if !p.GetRunning() {
-					resp.CloseSend()
+					errs := resp.CloseSend()
+					if errs != nil {
+						log.Error("CloseSend", "err", errs)
+					}
 					cancel()
-					log.Error("sendStream peer is not running")
+					log.Error("sendStream peer connect closed", "peerName", p.GetPeerName())
 					return
 				}
 				p2pdata := new(pb.BroadCastData)
@@ -249,6 +266,7 @@ func (p *Peer) sendStream() {
 							log.Debug("sendStream", "find peer height>this broadblock ,send process", "break")
 							continue
 						}
+
 					}
 
 					p2pdata.Value = &pb.BroadCastData_Block{Block: block}
@@ -270,7 +288,10 @@ func (p *Peer) sendStream() {
 						p.node.nodeInfo.blacklist.Add(p.Addr(), 3600)
 					}
 					time.Sleep(time.Second) //have a rest
-					resp.CloseSend()
+					errs := resp.CloseSend()
+					if errs != nil {
+						log.Error("CloseSend", "err", errs)
+					}
 					cancel()
 
 					break SEND_LOOP //下一次外循环重新获取stream
@@ -280,7 +301,10 @@ func (p *Peer) sendStream() {
 			case <-timeout.C:
 				if !p.GetRunning() {
 					log.Error("sendStream timeout")
-					resp.CloseSend()
+					errs := resp.CloseSend()
+					if errs != nil {
+						log.Error("CloseSend", "err", errs)
+					}
 					cancel()
 					return
 				}
@@ -318,14 +342,21 @@ func (p *Peer) readStream() {
 		var hash [64]byte
 		for {
 			if !p.GetRunning() {
-				resp.CloseSend()
+				errs := resp.CloseSend()
+				if errs != nil {
+					log.Error("CloseSend", "err", errs)
+				}
 				return
 			}
+
 			data, err := resp.Recv()
 			P2pComm.CollectPeerStat(err, p)
 			if err != nil {
 				log.Error("readStream", "recv,err:", err.Error())
-				resp.CloseSend()
+				errs := resp.CloseSend()
+				if errs != nil {
+					log.Error("CloseSend", "err", errs)
+				}
 				if grpc.Code(err) == codes.Unimplemented { //maybe order peers delete peer to BlackList
 					p.node.nodeInfo.blacklist.Add(p.Addr(), 3600)
 				}
@@ -386,7 +417,10 @@ func (p *Peer) readStream() {
 					Filter.RegRecvData(txhash)
 					Filter.ReleaseLock()
 					msg := p.node.nodeInfo.client.NewMessage("mempool", pb.EventTx, tx.GetTx())
-					p.node.nodeInfo.client.Send(msg, false)
+					errs := p.node.nodeInfo.client.Send(msg, false)
+					if errs != nil {
+						log.Error("send", "to mempool EventTx msg Error", errs.Error())
+					}
 					//Filter.RegRecvData(txhash) //登记
 				}
 			}
@@ -396,6 +430,10 @@ func (p *Peer) readStream() {
 
 // GetRunning get running ok or not
 func (p *Peer) GetRunning() bool {
+	if p.node.isClose() {
+		return false
+	}
+
 	return atomic.LoadInt32(&p.isclose) != 1
 
 }

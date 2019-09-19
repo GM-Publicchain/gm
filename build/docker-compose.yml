@@ -4,9 +4,6 @@ services:
   chain33:
     build:
       context: .
-    ports:
-     - "8802:8802"
-     - "8801:8801"
 
   chain32:
     build:

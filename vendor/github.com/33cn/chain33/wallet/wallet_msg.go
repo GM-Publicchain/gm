@@ -16,7 +16,7 @@ func (wallet *Wallet) ProcRecvMsg() {
 	for msg := range wallet.client.Recv() {
 		walletlog.Debug("wallet recv", "msg", types.GetEventName(int(msg.Ty)), "Id", msg.ID)
 		beg := types.Now()
-		reply, err := wallet.ExecWallet(&msg)
+		reply, err := wallet.ExecWallet(msg)
 		if err != nil {
 			//only for test ,del when test end
 			msg.Reply(wallet.api.NewMessage("", 0, err))
@@ -148,14 +148,20 @@ func (wallet *Wallet) On_WalletUnLock(req *types.WalletUnLock) (types.Message, e
 
 // On_AddBlock 处理新增区块
 func (wallet *Wallet) On_AddBlock(block *types.BlockDetail) (types.Message, error) {
-	wallet.updateLastHeader(block, 1)
+	err := wallet.updateLastHeader(block, 1)
+	if err != nil {
+		walletlog.Error("On_AddBlock updateLastHeader", "height", block.Block.Height, "err", err)
+	}
 	wallet.ProcWalletAddBlock(block)
 	return nil, nil
 }
 
 // On_DelBlock 处理删除区块
 func (wallet *Wallet) On_DelBlock(block *types.BlockDetail) (types.Message, error) {
-	wallet.updateLastHeader(block, -1)
+	err := wallet.updateLastHeader(block, -1)
+	if err != nil {
+		walletlog.Error("On_DelBlock updateLastHeader", "height", block.Block.Height, "err", err)
+	}
 	wallet.ProcWalletDelBlock(block)
 	return nil, nil
 }
@@ -278,4 +284,13 @@ func (wallet *Wallet) execWallet(param *types.ChainExecutor, eventID int64) (rep
 	}
 	//这里不判断类型是否可以调用，直接按照名字调用，如果发生panic，用recover 恢复
 	return wcom.QueryData.Call(param.Driver, param.FuncName, paramIn)
+}
+
+// On_NewAccountByIndex 获取指定index的私钥，返回私钥的hex字符串ReqString
+func (wallet *Wallet) On_NewAccountByIndex(req *types.Int32) (types.Message, error) {
+	reply, err := wallet.createNewAccountByIndex(uint32(req.Data))
+	if err != nil {
+		walletlog.Error("On_NewAccountByIndex", "err", err.Error())
+	}
+	return &types.ReplyString{Data: reply}, err
 }

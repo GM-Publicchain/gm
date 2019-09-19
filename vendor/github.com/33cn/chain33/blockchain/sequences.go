@@ -11,7 +11,10 @@ import (
 
 //GetBlockSequences 通过记录的block序列号获取blockd序列存储的信息
 func (chain *BlockChain) GetBlockSequences(requestblock *types.ReqBlocks) (*types.BlockSequences, error) {
-	blockLastSeq, _ := chain.blockStore.LoadBlockLastSequence()
+	blockLastSeq, err := chain.blockStore.LoadBlockLastSequence()
+	if err != nil {
+		chainlog.Debug("GetBlockSequences LoadBlockLastSequence", "blockLastSeq", blockLastSeq, "err", err)
+	}
 	if requestblock.Start > blockLastSeq {
 		chainlog.Error("GetBlockSequences StartSeq err", "startSeq", requestblock.Start, "lastSeq", blockLastSeq)
 		return nil, types.ErrStartHeight
@@ -87,13 +90,25 @@ func (chain *BlockChain) ProcGetSeqByHash(hash []byte) (int64, error) {
 	return seq, err
 }
 
+//ProcGetMainSeqByHash 处理共识过来的通过blockhash获取seq的消息，只提供add block时的seq，用于平行链block回退
+func (chain *BlockChain) ProcGetMainSeqByHash(hash []byte) (int64, error) {
+	if len(hash) == 0 {
+		chainlog.Error("ProcGetMainSeqByHash input hash is null")
+		return -1, types.ErrInvalidParam
+	}
+	seq, err := chain.blockStore.GetMainSequenceByHash(hash)
+	chainlog.Debug("ProcGetMainSeqByHash", "blockhash", common.ToHex(hash), "seq", seq, "err", err)
+
+	return seq, err
+}
+
 //ProcAddBlockSeqCB 添加seq callback
 func (chain *BlockChain) ProcAddBlockSeqCB(cb *types.BlockSeqCB) error {
 	if cb == nil {
 		return types.ErrInvalidParam
 	}
 
-	if !isRecordBlockSequence {
+	if !chain.isRecordBlockSequence {
 		return types.ErrRecordBlockSequence
 	}
 	if chain.blockStore.seqCBNum() >= MaxSeqCB && !chain.blockStore.isSeqCBExist(cb.Name) {

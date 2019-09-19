@@ -261,9 +261,13 @@ func (wallet *Wallet) IsWalletLocked() bool {
 
 // SetQueueClient 初始化客户端消息队列
 func (wallet *Wallet) SetQueueClient(cli queue.Client) {
+	var err error
 	wallet.client = cli
 	wallet.client.Sub("wallet")
-	wallet.api, _ = client.New(cli, nil)
+	wallet.api, err = client.New(cli, nil)
+	if err != nil {
+		panic("SetQueueClient client.New err")
+	}
 	wallet.wg.Add(1)
 	go wallet.ProcRecvMsg()
 	for _, policy := range wcom.PolicyContainer {
@@ -294,14 +298,14 @@ func (wallet *Wallet) getPrivKeyByAddr(addr string) (crypto.PrivKey, error) {
 	//获取指定地址在钱包里的账户信息
 	Accountstor, err := wallet.walletStore.GetAccountByAddr(addr)
 	if err != nil {
-		walletlog.Error("ProcSendToAddress", "GetAccountByAddr err:", err)
+		walletlog.Error("getPrivKeyByAddr", "GetAccountByAddr err:", err)
 		return nil, err
 	}
 
 	//通过password解密存储的私钥
 	prikeybyte, err := common.FromHex(Accountstor.GetPrivkey())
 	if err != nil || len(prikeybyte) == 0 {
-		walletlog.Error("ProcSendToAddress", "FromHex err", err)
+		walletlog.Error("getPrivKeyByAddr", "FromHex err", err)
 		return nil, err
 	}
 
@@ -309,12 +313,12 @@ func (wallet *Wallet) getPrivKeyByAddr(addr string) (crypto.PrivKey, error) {
 	//通过privkey生成一个pubkey然后换算成对应的addr
 	cr, err := crypto.New(types.GetSignName("", SignType))
 	if err != nil {
-		walletlog.Error("ProcSendToAddress", "err", err)
+		walletlog.Error("getPrivKeyByAddr", "err", err)
 		return nil, err
 	}
 	priv, err := cr.PrivKeyFromBytes(privkey)
 	if err != nil {
-		walletlog.Error("ProcSendToAddress", "PrivKeyFromBytes err", err)
+		walletlog.Error("getPrivKeyByAddr", "PrivKeyFromBytes err", err)
 		return nil, err
 	}
 	return priv, nil
@@ -371,8 +375,8 @@ func (wallet *Wallet) CheckWalletStatus() (bool, error) {
 	}
 
 	//判断钱包是否已保存seed
-	has, _ := wallet.walletStore.HasSeed()
-	if !has {
+	has, err := wallet.walletStore.HasSeed()
+	if !has || err != nil {
 		return false, types.ErrSaveSeedFirst
 	}
 	return true, nil
@@ -396,12 +400,15 @@ func (wallet *Wallet) isAutoMinning() bool {
 
 // GetWalletStatus 获取钱包状态
 func (wallet *Wallet) GetWalletStatus() *types.WalletStatus {
+	var err error
 	s := &types.WalletStatus{}
 	s.IsWalletLock = wallet.IsWalletLocked()
-	s.IsHasSeed, _ = wallet.walletStore.HasSeed()
+	s.IsHasSeed, err = wallet.walletStore.HasSeed()
 	s.IsAutoMining = wallet.isAutoMinning()
 	s.IsTicketLock = wallet.isTicketLocked()
-
+	if err != nil {
+		walletlog.Debug("GetWalletStatus HasSeed ", "err", err)
+	}
 	walletlog.Debug("GetWalletStatus", "walletstatus", s)
 	return s
 }

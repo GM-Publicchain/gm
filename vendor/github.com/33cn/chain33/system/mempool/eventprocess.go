@@ -19,28 +19,28 @@ func (mem *Mempool) reply() {
 	}
 }
 
-func (mem *Mempool) pipeLine() <-chan queue.Message {
+func (mem *Mempool) pipeLine() <-chan *queue.Message {
 	//check sign
-	step1 := func(data queue.Message) queue.Message {
+	step1 := func(data *queue.Message) *queue.Message {
 		if data.Err() != nil {
 			return data
 		}
 		return mem.checkSign(data)
 	}
-	chs := make([]<-chan queue.Message, processNum)
+	chs := make([]<-chan *queue.Message, processNum)
 	for i := 0; i < processNum; i++ {
 		chs[i] = step(mem.done, mem.in, step1)
 	}
 	out1 := merge(mem.done, chs)
 
 	//checktx remote
-	step2 := func(data queue.Message) queue.Message {
+	step2 := func(data *queue.Message) *queue.Message {
 		if data.Err() != nil {
 			return data
 		}
 		return mem.checkTxRemote(data)
 	}
-	chs2 := make([]<-chan queue.Message, processNum)
+	chs2 := make([]<-chan *queue.Message, processNum)
 	for i := 0; i < processNum; i++ {
 		chs2[i] = step(mem.done, out1, step2)
 	}
@@ -87,6 +87,12 @@ func (mem *Mempool) eventProcess() {
 		case types.EventGetAddrTxs:
 			// 获取mempool中对应账户（组）所有交易
 			mem.eventGetAddrTxs(msg)
+		case types.EventGetProperFee:
+			// 获取对应排队策略中合适的手续费
+			mem.eventGetProperFee(msg)
+			// 消息类型EventTxListByHash：通过hash获取对应的tx列表
+		case types.EventTxListByHash:
+			mem.eventTxListByHash(msg)
 		default:
 		}
 		mlog.Debug("mempool", "cost", types.Since(beg), "msg", types.GetEventName(int(msg.Ty)))
@@ -94,7 +100,7 @@ func (mem *Mempool) eventProcess() {
 }
 
 //EventTx 初步筛选后存入mempool
-func (mem *Mempool) eventTx(msg queue.Message) {
+func (mem *Mempool) eventTx(msg *queue.Message) {
 	if !mem.getSync() {
 		msg.Reply(mem.client.NewMessage("", types.EventReply, &types.Reply{Msg: []byte(types.ErrNotSync.Error())}))
 		mlog.Debug("wrong tx", "err", types.ErrNotSync.Error())
@@ -108,13 +114,13 @@ func (mem *Mempool) eventTx(msg queue.Message) {
 }
 
 // EventGetMempool 获取Mempool内所有交易
-func (mem *Mempool) eventGetMempool(msg queue.Message) {
+func (mem *Mempool) eventGetMempool(msg *queue.Message) {
 	msg.Reply(mem.client.NewMessage("rpc", types.EventReplyTxList,
 		&types.ReplyTxList{Txs: mem.filterTxList(0, nil)}))
 }
 
 // EventDelTxList 获取Mempool中一定数量交易，并把这些交易从Mempool中删除
-func (mem *Mempool) eventDelTxList(msg queue.Message) {
+func (mem *Mempool) eventDelTxList(msg *queue.Message) {
 	hashList := msg.GetData().(*types.TxHashList)
 	if len(hashList.GetHashes()) == 0 {
 		msg.ReplyErr("EventDelTxList", types.ErrSize)
@@ -125,7 +131,7 @@ func (mem *Mempool) eventDelTxList(msg queue.Message) {
 }
 
 // EventTxList 获取mempool中一定数量交易
-func (mem *Mempool) eventTxList(msg queue.Message) {
+func (mem *Mempool) eventTxList(msg *queue.Message) {
 	hashList := msg.GetData().(*types.TxHashList)
 	if hashList.Count <= 0 {
 		msg.Reply(mem.client.NewMessage("", types.EventReplyTxList, types.ErrSize))
@@ -137,7 +143,7 @@ func (mem *Mempool) eventTxList(msg queue.Message) {
 }
 
 // EventAddBlock 将添加到区块内的交易从mempool中删除
-func (mem *Mempool) eventAddBlock(msg queue.Message) {
+func (mem *Mempool) eventAddBlock(msg *queue.Message) {
 	block := msg.GetData().(*types.BlockDetail).Block
 	if block.Height > mem.Height() || (block.Height == 0 && mem.Height() == 0) {
 		header := &types.Header{}
@@ -150,21 +156,21 @@ func (mem *Mempool) eventAddBlock(msg queue.Message) {
 }
 
 // EventGetMempoolSize 获取mempool大小
-func (mem *Mempool) eventGetMempoolSize(msg queue.Message) {
+func (mem *Mempool) eventGetMempoolSize(msg *queue.Message) {
 	memSize := int64(mem.Size())
 	msg.Reply(mem.client.NewMessage("rpc", types.EventMempoolSize,
 		&types.MempoolSize{Size: memSize}))
 }
 
 // EventGetLastMempool 获取最新十条加入到mempool的交易
-func (mem *Mempool) eventGetLastMempool(msg queue.Message) {
+func (mem *Mempool) eventGetLastMempool(msg *queue.Message) {
 	txList := mem.GetLatestTx()
 	msg.Reply(mem.client.NewMessage("rpc", types.EventReplyTxList,
 		&types.ReplyTxList{Txs: txList}))
 }
 
 // EventDelBlock 回滚区块，把该区块内交易重新加回mempool
-func (mem *Mempool) eventDelBlock(msg queue.Message) {
+func (mem *Mempool) eventDelBlock(msg *queue.Message) {
 	block := msg.GetData().(*types.BlockDetail).Block
 	if block.Height != mem.GetHeader().GetHeight() {
 		return
@@ -174,19 +180,27 @@ func (mem *Mempool) eventDelBlock(msg queue.Message) {
 		mlog.Error(err.Error())
 		return
 	}
-	h := lastHeader.(queue.Message).Data.(*types.Header)
+	h := lastHeader.(*queue.Message).Data.(*types.Header)
 	mem.setHeader(h)
 	mem.delBlock(block)
 }
 
 // eventGetAddrTxs 获取mempool中对应账户（组）所有交易
-func (mem *Mempool) eventGetAddrTxs(msg queue.Message) {
+func (mem *Mempool) eventGetAddrTxs(msg *queue.Message) {
 	addrs := msg.GetData().(*types.ReqAddrs)
 	txlist := mem.GetAccTxs(addrs)
 	msg.Reply(mem.client.NewMessage("", types.EventReplyAddrTxs, txlist))
 }
 
-func (mem *Mempool) checkSign(data queue.Message) queue.Message {
+// eventGetProperFee 获取排队策略中合适的手续费率
+func (mem *Mempool) eventGetProperFee(msg *queue.Message) {
+	req, _ := msg.GetData().(*types.ReqProperFee)
+	properFee := mem.GetProperFeeRate(req)
+	msg.Reply(mem.client.NewMessage("rpc", types.EventReplyProperFee,
+		&types.ReplyProperFee{ProperFee: properFee}))
+}
+
+func (mem *Mempool) checkSign(data *queue.Message) *queue.Message {
 	tx, ok := data.GetData().(types.TxGroup)
 	if ok && tx.CheckSign() {
 		return data
@@ -194,4 +208,11 @@ func (mem *Mempool) checkSign(data queue.Message) queue.Message {
 	mlog.Error("wrong tx", "err", types.ErrSign)
 	data.Data = types.ErrSign
 	return data
+}
+
+// eventTxListByHash 通过hash获取tx列表
+func (mem *Mempool) eventTxListByHash(msg *queue.Message) {
+	shashList := msg.GetData().(*types.ReqTxHashList)
+	replytxList := mem.getTxListByHash(shashList)
+	msg.Reply(mem.client.NewMessage("", types.EventReplyTxList, replytxList))
 }

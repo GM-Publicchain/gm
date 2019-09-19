@@ -86,7 +86,7 @@ function start() {
     #fi
 
     echo "=========== # save seed to wallet ============="
-    result=$(${CLI} seed save -p 1314 -s "tortoise main civil member grace happy century convince father cage beach hip maid merry rib" | jq ".isok")
+    result=$(${CLI} seed save -p 1314fuzamei -s "tortoise main civil member grace happy century convince father cage beach hip maid merry rib" | jq ".isok")
     if [ "${result}" = "false" ]; then
         echo "save seed to wallet error seed, result: ${result}"
         exit 1
@@ -95,7 +95,7 @@ function start() {
     sleep 1
 
     echo "=========== # unlock wallet ============="
-    result=$(${CLI} wallet unlock -p 1314 -t 0 | jq ".isok")
+    result=$(${CLI} wallet unlock -p 1314fuzamei -t 0 | jq ".isok")
     if [ "${result}" = "false" ]; then
         exit 1
     fi
@@ -214,7 +214,7 @@ function auto_test() {
     fi
 
     echo "=========== #config token blacklist ============="
-    rawData=$(${CLI} config config_tx -k token-blacklist -o add -v BTC)
+    rawData=$(${CLI} config config_tx -c token-blacklist -o add -v BTC)
     signData=$(${CLI} wallet sign -d "${rawData}" -k 0xc34b5d9d44ac7b754806f761d3d4d2c4fe5214f6b074c19f069c4f5c2a29c8cc)
     hash=$(${CLI} wallet send -d "${signData}")
     block_wait "${CLI}" 2

@@ -33,6 +33,7 @@ func (n *Node) Start() {
 	}
 	n.detectNodeAddr()
 	n.monitor()
+	atomic.StoreInt32(&n.closed, 0)
 	go n.doNat()
 
 }
@@ -45,12 +46,14 @@ func (n *Node) Close() {
 	}
 	log.Debug("stop", "listen", "closed")
 	n.nodeInfo.addrBook.Close()
+	n.nodeInfo.monitorChan <- nil
 	log.Debug("stop", "addrBook", "closed")
 	n.removeAll()
 	if Filter != nil {
 		Filter.Close()
 	}
 	n.deleteNatMapPort()
+
 	log.Info("stop", "PeerRemoeAll", "closed")
 
 }
@@ -67,6 +70,9 @@ type Node struct {
 	cacheBound map[string]*Peer
 	outBound   map[string]*Peer
 	listener   Listener
+	listenPort int
+	innerSeeds sync.Map
+	cfgSeeds   sync.Map
 	closed     int32
 	pubsub     *pubsub.PubSub
 }
@@ -84,21 +90,26 @@ func NewNode(cfg *types.P2P) (*Node, error) {
 		cacheBound: make(map[string]*Peer),
 		pubsub:     pubsub.NewPubSub(10200),
 	}
-
+	node.listenPort = 13802
 	if cfg.Port != 0 && cfg.Port <= 65535 && cfg.Port > 1024 {
-		defaultPort = int(cfg.Port)
+		node.listenPort = int(cfg.Port)
 
 	}
 
 	if cfg.InnerSeedEnable {
+		seeds := MainNetSeeds
 		if types.IsTestNet() {
-			cfg.Seeds = append(cfg.Seeds, TestNetSeeds...)
-		} else {
-			cfg.Seeds = append(cfg.Seeds, InnerSeeds...)
+			seeds = TestNetSeeds
 		}
 
+		for _, seed := range seeds {
+			node.innerSeeds.Store(seed, "inner")
+		}
 	}
 
+	for _, seed := range cfg.Seeds {
+		node.cfgSeeds.Store(seed, "cfg")
+	}
 	node.nodeInfo = NewNodeInfo(cfg)
 	if cfg.ServerStart {
 		node.listener = NewListener(protocol, node)
@@ -112,7 +123,8 @@ func (n *Node) flushNodePort(localport, export uint16) {
 		n.nodeInfo.SetExternalAddr(exaddr)
 		n.nodeInfo.addrBook.AddOurAddress(exaddr)
 	}
-	if listenAddr, err := NewNetAddressString(fmt.Sprintf("%v:%v", LocalAddr, localport)); err == nil {
+
+	if listenAddr, err := NewNetAddressString(fmt.Sprintf("%v:%v", n.nodeInfo.GetListenAddr().IP.String(), localport)); err == nil {
 		n.nodeInfo.SetListenAddr(listenAddr)
 		n.nodeInfo.addrBook.AddOurAddress(listenAddr)
 	}
@@ -133,7 +145,7 @@ func (n *Node) doNat() {
 		}
 		time.Sleep(time.Second)
 	}
-	testExaddr := fmt.Sprintf("%v:%v", n.nodeInfo.GetExternalAddr().IP.String(), defaultPort)
+	testExaddr := fmt.Sprintf("%v:%v", n.nodeInfo.GetExternalAddr().IP.String(), n.listenPort)
 	log.Info("TestNetAddr", "testExaddr", testExaddr)
 	if len(P2pComm.AddrRouteble([]string{testExaddr})) != 0 {
 		log.Info("node outside")
@@ -162,7 +174,7 @@ func (n *Node) doNat() {
 			p2pcli := NewNormalP2PCli()
 			//测试映射后的端口能否连通或者外网+本地端口
 			if p2pcli.CheckPeerNatOk(n.nodeInfo.GetExternalAddr().String()) ||
-				p2pcli.CheckPeerNatOk(fmt.Sprintf("%v:%v", n.nodeInfo.GetExternalAddr().IP.String(), defaultPort)) {
+				p2pcli.CheckPeerNatOk(fmt.Sprintf("%v:%v", n.nodeInfo.GetExternalAddr().IP.String(), n.listenPort)) {
 
 				n.nodeInfo.SetServiceTy(Service)
 				log.Info("doNat", "NatOk", "Support Service")
@@ -329,6 +341,7 @@ func (n *Node) monitor() {
 	go n.monitorFilter()
 	go n.monitorPeers()
 	go n.nodeReBalance()
+	go n.monitorCfgSeeds()
 }
 
 func (n *Node) needMore() bool {
@@ -342,9 +355,9 @@ func (n *Node) detectNodeAddr() {
 	for {
 		cfg := n.nodeInfo.cfg
 		laddr := P2pComm.GetLocalAddr()
-		LocalAddr = laddr
+		//LocalAddr = laddr
 		log.Info("DetectNodeAddr", "addr:", laddr)
-		if len(LocalAddr) == 0 {
+		if laddr == "" {
 			log.Error("DetectNodeAddr", "NetWork Disable p2p Disable", "Retry until Network enable")
 			time.Sleep(time.Second * 5)
 			continue
@@ -366,13 +379,16 @@ func (n *Node) detectNodeAddr() {
 		var externalPort int
 
 		if cfg.IsSeed {
-			externalPort = defaultPort
+			externalPort = n.listenPort
 		} else {
-			exportBytes, _ := n.nodeInfo.addrBook.bookDb.Get([]byte(externalPortTag))
+			exportBytes, err := n.nodeInfo.addrBook.bookDb.Get([]byte(externalPortTag))
 			if len(exportBytes) != 0 {
 				externalPort = int(P2pComm.BytesToInt32(exportBytes))
 			} else {
 				externalPort = defalutNatPort
+			}
+			if err != nil {
+				log.Error("bookDb Get", "externalPortTag fail err:", err)
 			}
 		}
 
@@ -387,12 +403,10 @@ func (n *Node) detectNodeAddr() {
 			log.Error("DetectionNodeAddr", "error", err.Error())
 		}
 
-		if listaddr, err := NewNetAddressString(fmt.Sprintf("%v:%v", laddr, defaultPort)); err == nil {
+		if listaddr, err := NewNetAddressString(fmt.Sprintf("%v:%v", laddr, n.listenPort)); err == nil {
 			n.nodeInfo.SetListenAddr(listaddr)
 			n.nodeInfo.addrBook.AddOurAddress(listaddr)
 		}
-
-		//log.Info("DetectionNodeAddr", "ExternalIp", externalIP, "LocalAddr", LocalAddr, "IsOutSide", n.nodeInfo.OutSide())
 
 		break
 	}
@@ -414,7 +428,7 @@ func (n *Node) natMapPort() {
 		ok := p2pcli.CheckSelf(n.nodeInfo.GetExternalAddr().String(), n.nodeInfo)
 		if !ok {
 			log.Info("natMapPort", "port is used", n.nodeInfo.GetExternalAddr().String())
-			n.flushNodePort(uint16(defaultPort), uint16(rand.Intn(64512)+1023))
+			n.flushNodePort(uint16(n.listenPort), uint16(rand.Intn(64512)+1023))
 		}
 
 	}
@@ -422,11 +436,11 @@ func (n *Node) natMapPort() {
 	log.Info("natMapPort", "netport", n.nodeInfo.GetExternalAddr().Port)
 	for i := 0; i < tryMapPortTimes; i++ {
 		//映射事件持续约48小时
-		err = nat.Any().AddMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), defaultPort, nodename[:8], time.Hour*48)
+		err = nat.Any().AddMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), n.listenPort, nodename[:8], time.Hour*48)
 		if err != nil {
 			if i > tryMapPortTimes/2 { //如果连续失败次数超过最大限制次数的二分之一则切换为随机端口映射
 				log.Error("NatMapPort", "err", err.Error())
-				n.flushNodePort(uint16(defaultPort), uint16(rand.Intn(64512)+1023))
+				n.flushNodePort(uint16(n.listenPort), uint16(rand.Intn(64512)+1023))
 
 			}
 			log.Info("NatMapPort", "External Port", n.nodeInfo.GetExternalAddr().Port)
@@ -439,13 +453,16 @@ func (n *Node) natMapPort() {
 	if err != nil {
 		//映射失败
 		log.Warn("NatMapPort", "Nat", "Faild")
-		n.flushNodePort(uint16(defaultPort), uint16(defaultPort))
+		n.flushNodePort(uint16(n.listenPort), uint16(n.listenPort))
 		n.nodeInfo.natResultChain <- false
 		return
 	}
 
-	n.nodeInfo.addrBook.bookDb.Set([]byte(externalPortTag),
+	err = n.nodeInfo.addrBook.bookDb.Set([]byte(externalPortTag),
 		P2pComm.Int32ToBytes(int32(n.nodeInfo.GetExternalAddr().Port))) //把映射成功的端口信息刷入db
+	if err != nil {
+		panic(err)
+	}
 	log.Info("natMapPort", "export insert into db", n.nodeInfo.GetExternalAddr().Port)
 	n.nodeInfo.natResultChain <- true
 	refresh := time.NewTimer(mapUpdateInterval)
@@ -454,7 +471,7 @@ func (n *Node) natMapPort() {
 		<-refresh.C
 		log.Info("NatWorkRefresh")
 		for {
-			if err := nat.Any().AddMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), defaultPort, nodename[:8], time.Hour*48); err != nil {
+			if err := nat.Any().AddMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), n.listenPort, nodename[:8], time.Hour*48); err != nil {
 				log.Error("NatMapPort update", "err", err.Error())
 				time.Sleep(time.Second)
 				continue
@@ -470,7 +487,11 @@ func (n *Node) deleteNatMapPort() {
 	if n.nodeInfo.OutSide() {
 		return
 	}
-	nat.Any().DeleteMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), defaultPort)
+
+	err := nat.Any().DeleteMapping("TCP", int(n.nodeInfo.GetExternalAddr().Port), n.listenPort)
+	if err != nil {
+		log.Error("deleteNatMapPort", "DeleteMapping err", err.Error())
+	}
 
 }
 

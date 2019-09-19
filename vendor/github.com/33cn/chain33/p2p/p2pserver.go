@@ -7,7 +7,6 @@ package p2p
 import (
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/33cn/chain33/common/version"
 	pb "github.com/33cn/chain33/types"
 	"golang.org/x/net/context"
+
 	pr "google.golang.org/grpc/peer"
 )
 
@@ -65,6 +65,7 @@ func NewP2pServer() *P2pserver {
 
 // Ping p2pserver ping
 func (s *P2pserver) Ping(ctx context.Context, in *pb.P2PPing) (*pb.P2PPong, error) {
+
 	log.Debug("ping")
 	if !P2pComm.CheckSign(in) {
 		log.Error("Ping", "p2p server", "check sig err")
@@ -88,7 +89,6 @@ func (s *P2pserver) Ping(ctx context.Context, in *pb.P2PPing) (*pb.P2PPong, erro
 		}
 
 	}
-
 	log.Debug("Send Pong", "Nonce", in.GetNonce())
 	return &pb.P2PPong{Nonce: in.GetNonce()}, nil
 
@@ -96,6 +96,7 @@ func (s *P2pserver) Ping(ctx context.Context, in *pb.P2PPing) (*pb.P2PPong, erro
 
 // GetAddr get address
 func (s *P2pserver) GetAddr(ctx context.Context, in *pb.P2PGetAddr) (*pb.P2PAddr, error) {
+
 	log.Debug("GETADDR", "RECV ADDR", in, "OutBound Len", s.node.Size())
 	var addrlist []string
 	peers, _ := s.node.GetActivePeers()
@@ -127,6 +128,7 @@ func (s *P2pserver) Version(ctx context.Context, in *pb.P2PVersion) (*pb.P2PVerA
 
 // Version2 p2pserver version
 func (s *P2pserver) Version2(ctx context.Context, in *pb.P2PVersion) (*pb.P2PVersion, error) {
+
 	log.Debug("Version2")
 	var peerip string
 	var err error
@@ -177,9 +179,13 @@ func (s *P2pserver) SoftVersion(ctx context.Context, in *pb.P2PPing) (*pb.Reply,
 // BroadCastTx broadcast transactions of p2pserver
 func (s *P2pserver) BroadCastTx(ctx context.Context, in *pb.P2PTx) (*pb.Reply, error) {
 	log.Debug("p2pServer RECV TRANSACTION", "in", in)
+
 	client := s.node.nodeInfo.client
 	msg := client.NewMessage("mempool", pb.EventTx, in.Tx)
-	client.Send(msg, false)
+	err := client.Send(msg, false)
+	if err != nil {
+		return nil, err
+	}
 	return &pb.Reply{IsOk: true, Msg: []byte("ok")}, nil
 }
 
@@ -220,6 +226,7 @@ func (s *P2pserver) GetMemPool(ctx context.Context, in *pb.P2PGetMempool) (*pb.P
 	if !s.checkVersion(in.GetVersion()) {
 		return nil, pb.ErrVersion
 	}
+
 	memtx, err := s.loadMempool()
 	if err != nil {
 		return nil, err
@@ -241,6 +248,7 @@ func (s *P2pserver) GetData(in *pb.P2PGetData, stream pb.P2Pgservice_GetDataServ
 	if !s.checkVersion(in.GetVersion()) {
 		return pb.ErrVersion
 	}
+
 	invs := in.GetInvs()
 	client := s.node.nodeInfo.client
 	for _, inv := range invs { //过滤掉不需要的数据
@@ -311,6 +319,7 @@ func (s *P2pserver) GetHeaders(ctx context.Context, in *pb.P2PGetHeaders) (*pb.P
 	if !s.checkVersion(in.GetVersion()) {
 		return nil, pb.ErrVersion
 	}
+
 	if in.GetEndHeight()-in.GetStartHeight() > 2000 || in.GetEndHeight() < in.GetStartHeight() {
 		return nil, fmt.Errorf("out of range")
 	}
@@ -338,6 +347,7 @@ func (s *P2pserver) GetPeerInfo(ctx context.Context, in *pb.P2PGetPeerInfo) (*pb
 	if !s.checkVersion(in.GetVersion()) {
 		return nil, pb.ErrVersion
 	}
+
 	client := s.node.nodeInfo.client
 	log.Debug("GetPeerInfo", "GetMempoolSize", "befor")
 	msg := client.NewMessage("mempool", pb.EventGetMempoolSize, nil)
@@ -383,6 +393,7 @@ func (s *P2pserver) GetPeerInfo(ctx context.Context, in *pb.P2PGetPeerInfo) (*pb
 // BroadCastBlock broadcast block of p2pserver
 func (s *P2pserver) BroadCastBlock(ctx context.Context, in *pb.P2PBlock) (*pb.Reply, error) {
 	log.Debug("BroadCastBlock")
+
 	client := s.node.nodeInfo.client
 	msg := client.NewMessage("blockchain", pb.EventBroadcastAddBlock, in.GetBlock())
 	err := client.Send(msg, false)
@@ -398,13 +409,31 @@ func (s *P2pserver) ServerStreamSend(in *pb.P2PPing, stream pb.P2Pgservice_Serve
 	if len(s.getInBoundPeers()) > int(s.node.nodeInfo.cfg.InnerBounds) {
 		return fmt.Errorf("beyound max inbound num")
 	}
+
 	log.Debug("ServerStreamSend")
 	peername := hex.EncodeToString(in.GetSign().GetPubkey())
+
+	defer s.deleteInBoundPeerInfo(peername)
+	defer func() { s.deleteSChan <- stream }()
 	dataChain := s.addStreamHandler(stream)
 	for data := range dataChain {
 		if s.IsClose() {
 			return fmt.Errorf("node close")
 		}
+
+		innerpeer := s.getInBoundPeerInfo(peername)
+		if innerpeer != nil {
+			if !s.checkVersion(innerpeer.p2pversion) {
+				log.Error("ServerStreamSend CheckVersion", "version", innerpeer.p2pversion)
+				if innerpeer.p2pversion == 0 {
+					return fmt.Errorf("version empty")
+				}
+				return pb.ErrVersion
+			}
+		} else {
+			return fmt.Errorf("no peer info")
+		}
+
 		p2pdata := new(pb.BroadCastData)
 		if block, ok := data.(*pb.P2PBlock); ok {
 			if block.GetBlock() != nil {
@@ -428,8 +457,8 @@ func (s *P2pserver) ServerStreamSend(in *pb.P2PPing, stream pb.P2Pgservice_Serve
 
 		err := stream.Send(p2pdata)
 		if err != nil {
-			s.deleteSChan <- stream
-			s.deleteInBoundPeerInfo(peername)
+			//s.deleteSChan <- stream
+			//s.deleteInBoundPeerInfo(peername)
 			return err
 		}
 	}
@@ -443,26 +472,48 @@ func (s *P2pserver) ServerStreamRead(stream pb.P2Pgservice_ServerStreamReadServe
 		return fmt.Errorf("beyound max inbound num:%v>%v", len(s.getInBoundPeers()), int(s.node.nodeInfo.cfg.InnerBounds))
 	}
 	log.Debug("StreamRead")
+	var remoteIP string
+	var err error
+	getctx, ok := pr.FromContext(stream.Context())
+	if ok {
+		remoteIP, _, err = net.SplitHostPort(getctx.Addr.String())
+		if err != nil {
+			return fmt.Errorf("ctx.Addr format err")
+		}
+	} else {
+
+		return fmt.Errorf("getctx err")
+	}
+
 	var hash [64]byte
 	var peeraddr, peername string
 	defer s.deleteInBoundPeerInfo(peername)
+	defer stream.SendAndClose(&pb.ReqNil{})
+
 	var in = new(pb.BroadCastData)
-	var err error
+
 	for {
 		if s.IsClose() {
 			return fmt.Errorf("node close")
 		}
 		in, err = stream.Recv()
-		if err == io.EOF {
-			log.Info("ServerStreamRead", "Recv", "EOF")
-			return err
-		}
 		if err != nil {
 			log.Error("ServerStreamRead", "Recv", err)
 			return err
 		}
 
 		if block := in.GetBlock(); block != nil {
+			innerpeer := s.getInBoundPeerInfo(peername)
+			if innerpeer != nil {
+				log.Error("ServerStreamRead CheckVersion", "version", innerpeer.p2pversion, "ip", remoteIP)
+				if !s.checkVersion(innerpeer.p2pversion) {
+					return pb.ErrVersion
+				}
+			} else {
+				log.Error("ServerStreamRead", "no peer info", "")
+				return fmt.Errorf("no peer info")
+			}
+
 			hex.Encode(hash[:], block.GetBlock().Hash())
 			blockhash := string(hash[:])
 
@@ -479,10 +530,22 @@ func (s *P2pserver) ServerStreamRead(stream pb.P2Pgservice_ServerStreamReadServe
 				"block size(KB)", float32(len(pb.Encode(block)))/1024, "block hash", blockhash)
 			if block.GetBlock() != nil {
 				msg := s.node.nodeInfo.client.NewMessage("blockchain", pb.EventBroadcastAddBlock, &pb.BlockPid{Pid: peername, Block: block.GetBlock()})
-				s.node.nodeInfo.client.Send(msg, false)
+				err := s.node.nodeInfo.client.Send(msg, false)
+				if err != nil {
+					log.Error("send", "to blockchain EventBroadcastAddBlock msg err", err)
+				}
 			}
 
 		} else if tx := in.GetTx(); tx != nil {
+			innerpeer := s.getInBoundPeerInfo(peername)
+			if innerpeer != nil {
+				if !s.checkVersion(innerpeer.p2pversion) {
+					return pb.ErrVersion
+				}
+			} else {
+				return fmt.Errorf("no peer info")
+			}
+
 			hex.Encode(hash[:], tx.GetTx().Hash())
 			txhash := string(hash[:])
 			log.Debug("ServerStreamRead", "txhash:", txhash)
@@ -495,31 +558,28 @@ func (s *P2pserver) ServerStreamRead(stream pb.P2Pgservice_ServerStreamReadServe
 			Filter.ReleaseLock()
 			if tx.GetTx() != nil {
 				msg := s.node.nodeInfo.client.NewMessage("mempool", pb.EventTx, tx.GetTx())
-				s.node.nodeInfo.client.Send(msg, false)
+				err := s.node.nodeInfo.client.Send(msg, false)
+				if err != nil {
+					log.Error("send", "to mempool EventTx msg err", err)
+				}
 			}
 			//Filter.RegRecvData(txhash)
 
 		} else if ping := in.GetPing(); ping != nil { ///被远程节点初次连接后，会收到ping 数据包，收到后注册到inboundpeers.
 			//Ping package
-
 			if !P2pComm.CheckSign(ping) {
 				log.Error("ServerStreamRead", "check stream", "check sig err")
 				return pb.ErrStreamPing
 			}
 
-			getctx, ok := pr.FromContext(stream.Context())
-			if ok && s.node.Size() > 0 {
-				//peerIp := strings.Split(getctx.Addr.String(), ":")[0]
-				peerIP, _, err := net.SplitHostPort(getctx.Addr.String())
-				if err != nil {
-					return fmt.Errorf("ctx.Addr format err")
-				}
-				if peerIP != LocalAddr && peerIP != s.node.nodeInfo.GetExternalAddr().IP.String() {
+			if s.node.Size() > 0 {
+
+				if remoteIP != s.node.nodeInfo.GetListenAddr().IP.String() && remoteIP != s.node.nodeInfo.GetExternalAddr().IP.String() {
 					s.node.nodeInfo.SetServiceTy(Service)
 				}
 			}
 			peername = hex.EncodeToString(ping.GetSign().GetPubkey())
-			peeraddr = fmt.Sprintf("%s:%v", in.GetPing().GetAddr(), in.GetPing().GetPort())
+			peeraddr = fmt.Sprintf("%s:%v", remoteIP, in.GetPing().GetPort())
 			s.addInBoundPeerInfo(peername, innerpeer{addr: peeraddr, name: peername, timestamp: pb.Now().Unix()})
 		} else if ver := in.GetVersion(); ver != nil {
 			//接收版本信息
@@ -528,9 +588,15 @@ func (s *P2pserver) ServerStreamRead(stream pb.P2Pgservice_ServerStreamReadServe
 			p2pversion := ver.GetP2Pversion()
 			innerpeer := s.getInBoundPeerInfo(peername)
 			if innerpeer != nil {
+				if !s.checkVersion(p2pversion) {
+					return pb.ErrVersion
+				}
 				innerpeer.p2pversion = p2pversion
 				innerpeer.softversion = softversion
 				s.addInBoundPeerInfo(peername, *innerpeer)
+			} else {
+				//没有获取到peername 的信息，说明没有获取ping的消息包
+				return pb.ErrStreamPing
 			}
 
 		}

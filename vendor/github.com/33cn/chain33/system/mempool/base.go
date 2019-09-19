@@ -20,8 +20,8 @@ var mlog = log.New("module", "mempool.base")
 //Mempool mempool 基础类
 type Mempool struct {
 	proxyMtx          sync.Mutex
-	in                chan queue.Message
-	out               <-chan queue.Message
+	in                chan *queue.Message
+	out               <-chan *queue.Message
 	client            queue.Client
 	header            *types.Header
 	sync              bool
@@ -53,13 +53,13 @@ func NewMempool(cfg *types.Mempool) *Mempool {
 	if cfg.PoolCacheSize == 0 {
 		cfg.PoolCacheSize = poolCacheSize
 	}
-	pool.in = make(chan queue.Message)
-	pool.out = make(<-chan queue.Message)
+	pool.in = make(chan *queue.Message)
+	pool.out = make(<-chan *queue.Message)
 	pool.done = make(chan struct{})
 	pool.cfg = cfg
 	pool.poolHeader = make(chan struct{}, 2)
 	pool.removeBlockTicket = time.NewTicker(time.Minute)
-	pool.cache = newCache(cfg.MaxTxNumPerAccount, cfg.MaxTxLast)
+	pool.cache = newCache(cfg.MaxTxNumPerAccount, cfg.MaxTxLast, cfg.PoolCacheSize)
 	return pool
 }
 
@@ -235,7 +235,7 @@ func (mem *Mempool) pollLastHeader() {
 			time.Sleep(time.Second)
 			continue
 		}
-		h := lastHeader.(queue.Message).Data.(*types.Header)
+		h := lastHeader.(*queue.Message).Data.(*types.Header)
 		mem.setHeader(h)
 		return
 	}
@@ -281,6 +281,43 @@ func (mem *Mempool) RemoveTxsOfBlock(block *types.Block) bool {
 	return true
 }
 
+// GetProperFeeRate 获取合适的手续费率
+func (mem *Mempool) GetProperFeeRate(req *types.ReqProperFee) int64 {
+	if req == nil || req.TxCount == 0 {
+		req = &types.ReqProperFee{TxCount: 20}
+	}
+	if req.TxSize == 0 {
+		req.TxSize = 10240
+	}
+	baseFeeRate := mem.cache.GetProperFee()
+	if mem.cfg.IsLevelFee {
+		levelFeeRate := mem.getLevelFeeRate(mem.cfg.MinTxFee, req.TxCount, req.TxSize)
+		if levelFeeRate > baseFeeRate {
+			return levelFeeRate
+		}
+	}
+	return baseFeeRate
+}
+
+// getLevelFeeRate 获取合适的阶梯手续费率, 可以外部传入count, size进行前瞻性估计
+func (mem *Mempool) getLevelFeeRate(baseFeeRate int64, appendCount, appendSize int32) int64 {
+	var feeRate int64
+	sumByte := mem.cache.TotalByte() + int64(appendSize)
+	maxTxNumber := types.GetP(mem.Height()).MaxTxNumber
+	switch {
+	case sumByte >= int64(types.MaxBlockSize/20) || int64(mem.Size()+int(appendCount)) >= maxTxNumber/2:
+		feeRate = 100 * baseFeeRate
+	case sumByte >= int64(types.MaxBlockSize/100) || int64(mem.Size()+int(appendCount)) >= maxTxNumber/10:
+		feeRate = 10 * baseFeeRate
+	default:
+		feeRate = baseFeeRate
+	}
+	if feeRate > 10000000 {
+		feeRate = 10000000
+	}
+	return feeRate
+}
+
 // Mempool.DelBlock将回退的区块内的交易重新加入mempool中
 func (mem *Mempool) delBlock(block *types.Block) {
 	if len(block.Txs) <= 0 {
@@ -300,14 +337,17 @@ func (mem *Mempool) delBlock(block *types.Block) {
 			tx = group.Tx()
 			i = i + groupCount - 1
 		}
-		err := tx.Check(header.GetHeight(), mem.cfg.MinTxFee)
+		err := tx.Check(header.GetHeight(), mem.cfg.MinTxFee, mem.cfg.MaxTxFee)
 		if err != nil {
 			continue
 		}
 		if !mem.checkExpireValid(tx) {
 			continue
 		}
-		mem.PushTx(tx)
+		err = mem.PushTx(tx)
+		if err != nil {
+			mlog.Error("mem", "push tx err", err)
+		}
 	}
 }
 
@@ -334,7 +374,11 @@ func (mem *Mempool) sendTxToP2P(tx *types.Transaction) {
 		panic("client not bind message queue.")
 	}
 	msg := mem.client.NewMessage("p2p", types.EventTxBroadcast, tx)
-	mem.client.Send(msg, false)
+	err := mem.client.Send(msg, false)
+	if err != nil {
+		mlog.Error("tx sent to p2p", "tx.Hash", common.ToHex(tx.Hash()))
+		return
+	}
 	mlog.Debug("tx sent to p2p", "tx.Hash", common.ToHex(tx.Hash()))
 }
 
@@ -382,4 +426,27 @@ func (mem *Mempool) setSync(status bool) {
 	mem.proxyMtx.Lock()
 	mem.sync = status
 	mem.proxyMtx.Unlock()
+}
+
+// getTxListByHash 从qcache或者SHashTxCache中获取hash对应的tx交易列表
+func (mem *Mempool) getTxListByHash(hashList *types.ReqTxHashList) *types.ReplyTxList {
+	mem.proxyMtx.Lock()
+	defer mem.proxyMtx.Unlock()
+
+	var replyTxList types.ReplyTxList
+
+	//通过短hash来获取tx交易
+	if hashList.GetIsShortHash() {
+		for _, sHash := range hashList.GetHashes() {
+			tx := mem.cache.GetSHashTxCache(sHash)
+			replyTxList.Txs = append(replyTxList.Txs, tx)
+		}
+		return &replyTxList
+	}
+	//通过hash来获取tx交易
+	for _, hash := range hashList.GetHashes() {
+		tx := mem.cache.getTxByHash(hash)
+		replyTxList.Txs = append(replyTxList.Txs, tx)
+	}
+	return &replyTxList
 }
